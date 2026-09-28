@@ -130,6 +130,25 @@ exactly the kind of match that plain structured filtering (or NCBI's own
 search) would miss, and is the core reason semantic/AI-assisted matching was
 chosen over structured filters alone.
 
+### Validated with a real run
+
+`prototype/search_prototype.py` was run against this exact example with a live
+OpenAI key. It returned `GSE277116` as the top match — a real GEO series
+studying TLS formation in pancreatic tumors under neoadjuvant immunotherapy,
+flagged `meets_data_availability: true` with high confidence. Confirms the
+core flow (live NCBI fetch → AI query expansion → AI ranking) surfaces matches
+that keyword/structured search alone would not.
+
+While building this, a real recall problem showed up: a single literal query
+built from the user's exact wording ("Spatial single-cell RNA-seq") missed a
+separately-known strong match, because GEO submitters describe the same assay
+differently (e.g. "spatial transcriptomics"). Fixed by having the AI generate
+a few alternate phrasings of the same criteria and merging results across all
+of them before ranking — recovery of the missed match was confirmed. This
+does mean each search now costs an extra AI call and several more NCBI calls
+(throttled client-side to respect NCBI's rate limit), which is a real
+cost/latency tradeoff worth revisiting if search volume grows.
+
 ## Open questions
 
 These are known gaps to resolve in future iterations, not oversights:
