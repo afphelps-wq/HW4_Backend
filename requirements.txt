@@ -3,3 +3,10 @@ uvicorn[standard]
 python-dotenv
 requests
 openai
+sqlalchemy>=2.0
+alembic
+psycopg[binary]
+pyjwt
+bcrypt
+pydantic[email]
+pytest

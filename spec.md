@@ -149,18 +149,97 @@ does mean each search now costs an extra AI call and several more NCBI calls
 (throttled client-side to respect NCBI's rate limit), which is a real
 cost/latency tradeoff worth revisiting if search volume grows.
 
+## API contract
+
+All routes except `/health` and `/auth/login` require `Authorization: Bearer <jwt>`.
+Auth failures are always `401`. Interactive docs: `/docs`.
+
+| Route | Purpose |
+|---|---|
+| `POST /auth/login` | `{email, password}` -> `{access_token, token_type: "bearer"}`. Emails are case-insensitive; unknown user and wrong password are indistinguishable. |
+| `GET /auth/me` | Current user (`id`, `email`, `is_admin`, `created_at`). |
+| `POST /search` | Run a search (below). |
+| `GET/POST /saved-searches` | List / create bookmarks for the current user. |
+| `GET/DELETE /saved-searches/{id}` | Fetch / delete one. Other users' ids return `404`, not `403`. |
+
+There is deliberately no public register route. Accounts are created by an
+admin running `python -m scripts.create_user <email> [--admin]` against the
+production `DATABASE_URL`; `--reset` changes an existing user's password.
+
+### `POST /search`
+
+Request:
+
+```json
+{
+  "methodology": "Spatial single-cell RNA-seq",
+  "organism": "Human",
+  "tissue": "Pancreatic tissue",
+  "conditions": ["PDAC primary resection, treatment-naive"],
+  "data_availability": "Metadata must indicate TLS annotations present",
+  "max_results": 10
+}
+```
+
+`methodology`, `organism`, `tissue` are required (they drive the NCBI query);
+`conditions` (max 10), `data_availability` and `max_results` (1-20, default 10)
+are optional. Text is whitespace-trimmed; blank required fields are `422`.
+
+Response:
+
+```json
+{
+  "cached": false,
+  "cached_at": null,
+  "results": [{
+    "accession": "GSE277116",
+    "title": "...",
+    "organism": "Homo sapiens",
+    "n_samples": 24,
+    "confidence": "high",
+    "match_summary": "...",
+    "matched_conditions": ["..."],
+    "meets_data_availability": true,
+    "geo_url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE277116",
+    "download_links": ["ftp://.../GSE277nnn/GSE277116/", "ftp://.../GSE277116/suppl/"]
+  }]
+}
+```
+
+`meets_data_availability` replaces the example-specific `has_tls_annotations`
+from the illustrative output above. Results are `GSE`-level. Accessions the AI
+returns that were not in the fetched candidate set are dropped. `502` means
+NCBI or OpenAI failed.
+
+## Database schema
+
+Managed with Alembic (`alembic upgrade head`); initial migration is
+`alembic/versions/0001_initial_schema.py`, models are in `app/models.py`.
+
+- `users`: `id` uuid, `email` (unique, stored lowercase, enforced by a CHECK),
+  `password_hash` (bcrypt), `is_active`, `is_admin`, `created_at`.
+- `saved_searches`: `id`, `user_id` -> users (ON DELETE CASCADE), `name`,
+  `query` jsonb, `results` jsonb (full snapshot at save time, so bookmarks
+  survive cache expiry), `created_at`. Indexed on `(user_id, created_at)`.
+- `search_cache`: `cache_key` (sha256 of lower-cased normalized query +
+  `SEARCH_CACHE_VERSION`), `query` jsonb, `results` jsonb (full ranked list;
+  `max_results` is applied per request), `created_at`, `expires_at`. Shared
+  across users. TTL is `SEARCH_CACHE_TTL_HOURS` (default 24). Bump
+  `SEARCH_CACHE_VERSION` in `app/config.py` when the ranking prompt or model
+  changes. Expired rows are overwritten on the next identical search but never
+  purged yet.
+
 ## Open questions
 
 These are known gaps to resolve in future iterations, not oversights:
 
 - Exact output granularity: `GSE` only, or also `GSM`/`SRR` when a user needs
   run-level data?
-- Exact request/response JSON schema for the search endpoint (the example
-  above is illustrative only).
 - Rate limiting / cost caps on OpenAI usage per user or globally.
-- Cache TTL and invalidation strategy for cached GEO/AI results.
-- Signup/invite mechanics: who approves new accounts, and how are invites
-  sent (manual DB insert, email invite flow, admin panel)?
+- Cache: 24h TTL and version-key invalidation are set (see Database schema);
+  still open is purging expired rows.
+- Signup: settled as a manual admin script for now (no invite emails or admin
+  panel); revisit if the group grows.
 - Error handling for GEO/SRA/OpenAI outages, rate limits, or malformed/
   ambiguous user input.
 - Whether saved/bookmarked searches need any sharing or export feature
@@ -170,9 +249,10 @@ These are known gaps to resolve in future iterations, not oversights:
 
 ## Next steps
 
-1. Design the concrete API contract (endpoints, request/response schemas,
-   auth flow) based on the decisions above.
-2. Design the PostgreSQL schema for users, saved searches, and cached results.
-3. Prototype the "fetch live candidates, then AI-rank" search flow against a
-   couple of real example queries (like the one above) to validate the
-   approach before building the full API.
+1. Wire up Render: create the Postgres instance, set the env vars, run
+   `alembic upgrade head`, create the first user with `scripts/create_user`.
+2. Make the prototype's NCBI throttle thread-safe (it uses a module-level
+   timestamp; concurrent searches can briefly exceed NCBI's rate limit, which
+   the 429 retry currently absorbs).
+3. Per-user / global OpenAI rate limiting and cost caps.
+4. Build the GitHub Pages frontend against this contract.
