@@ -20,11 +20,15 @@ log = logging.getLogger(__name__)
 @router.post("/search", response_model=SearchResponse)
 def search(
     body: SearchRequest,
+    refresh: bool = False,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
+    """`refresh=true` (admin only) bypasses the cache and overwrites the entry."""
+    if refresh and not user.is_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "refresh is admin-only")
     try:
-        results, cached_at = search_service.search(db, body)
+        results, cached_at = search_service.search(db, body, refresh=refresh)
     except (openai.OpenAIError, requests.RequestException) as exc:
         log.exception("Upstream failure during search")
         raise HTTPException(

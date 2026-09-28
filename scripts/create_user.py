@@ -25,6 +25,7 @@ def main() -> int:
     parser.add_argument("--admin", action="store_true")
     parser.add_argument("--reset", action="store_true", help="update an existing user's password")
     args = parser.parse_args()
+    engine = get_engine()  # fail fast on a bad DATABASE_URL, before prompting
 
     password = getpass.getpass("Password: ")
     if len(password.encode()) < 10:
@@ -38,7 +39,7 @@ def main() -> int:
         return 1
 
     email = normalize_email(args.email)
-    with Session(get_engine()) as db:
+    with Session(engine) as db:
         user = db.scalar(select(User).where(User.email == email))
         if user and not args.reset:
             print(f"{email} already exists (use --reset to change the password).", file=sys.stderr)

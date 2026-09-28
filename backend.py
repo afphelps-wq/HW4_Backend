@@ -1,3 +1,4 @@
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -7,6 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, saved_searches, search
 
 load_dotenv()
+
+# uvicorn only configures its own loggers; without this, app-level INFO logs
+# (search diagnostics) never reach Render's log stream.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 app = FastAPI(title="Seq2Find API")
 

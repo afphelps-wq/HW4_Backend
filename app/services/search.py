@@ -7,6 +7,7 @@ here to keep the candidate records around for the join (title, links, ...).
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
@@ -20,6 +21,8 @@ from prototype.search_prototype import (
     generate_query_variants,
     rank_with_ai,
 )
+
+log = logging.getLogger(__name__)
 
 GEO_ACC_URL = "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={}"
 
@@ -58,9 +61,11 @@ def _to_int(value) -> int | None:
 def _join(ranked: list[dict], candidates: dict[str, dict]) -> list[SearchResult]:
     results = []
     for item in ranked:
-        candidate = candidates.get(item.get("accession"))
+        accession = item.get("accession")
+        candidate = candidates.get(accession)
         if candidate is None:
-            continue  # the model returned an accession we never fetched
+            log.warning("Dropped ranker item %r: accession not in fetched candidates", accession)
+            continue
         links = []
         if candidate["ftp_link"]:
             links.append(candidate["ftp_link"])
@@ -73,7 +78,7 @@ def _join(ranked: list[dict], candidates: dict[str, dict]) -> list[SearchResult]
                     title=candidate["title"],
                     organism=candidate["organism"],
                     n_samples=_to_int(candidate["n_samples"]),
-                    confidence=item.get("confidence", "low"),
+                    confidence=str(item.get("confidence", "low")).strip().lower(),
                     match_summary=item.get("match_summary", ""),
                     matched_conditions=item.get("matched_conditions", []),
                     meets_data_availability=bool(item.get("meets_data_availability")),
@@ -81,33 +86,55 @@ def _join(ranked: list[dict], candidates: dict[str, dict]) -> list[SearchResult]
                     download_links=links,
                 )
             )
-        except ValueError:
-            continue  # malformed ranker item (e.g. unknown confidence label)
+        except ValueError as exc:
+            # pydantic's ValidationError is a ValueError
+            log.warning("Dropped ranker item %s: malformed (%s)",
+                        accession, str(exc).replace("\n", " | "))
     return results
 
 
 def _run_live_search(req: SearchRequest) -> list[SearchResult]:
     user_input = _prototype_input(req)
+    variants = generate_query_variants(user_input)
+    log.info("Query variants: %s", variants)
     by_accession: dict[str, dict] = {}
-    for query in generate_query_variants(user_input):
-        for candidate in fetch_candidates(query):
+    for query in variants:
+        found = fetch_candidates(query)
+        log.info("Query %r returned %d GSE candidates", query, len(found))
+        for candidate in found:
             by_accession.setdefault(candidate["accession"], candidate)
     merged = dict(list(by_accession.items())[:MAX_CANDIDATES_FOR_RANKING])
+    log.info("Merged %d unique candidates, sending %d to ranker: %s",
+             len(by_accession), len(merged), ", ".join(merged))
     ranked = rank_with_ai(user_input, list(merged.values()))
-    return _join(ranked, merged)
+    results = _join(ranked, merged)
+    log.info("Ranker returned %d items, kept %d: %s", len(ranked), len(results),
+             ", ".join(r.accession for r in results))
+    return results
 
 
-def search(db: Session, req: SearchRequest) -> tuple[list[SearchResult], datetime | None]:
-    """Return (results, cached_at); cached_at is None for a live search."""
+def search(
+    db: Session, req: SearchRequest, refresh: bool = False
+) -> tuple[list[SearchResult], datetime | None]:
+    """Return (results, cached_at); cached_at is None for a live search.
+
+    refresh=True skips the cache read and overwrites the cached entry."""
     key = cache_key(req)
     now = datetime.now(timezone.utc)
 
     row = db.get(SearchCache, key)
-    if row is not None and _aware(row.expires_at) > now:
+    if not refresh and row is not None and _aware(row.expires_at) > now:
         results = [SearchResult.model_validate(r) for r in row.results]
         return results[: req.max_results], _aware(row.created_at)
 
     results = _run_live_search(req)
+    if not results:
+        # An empty ranking is likelier a transient/noisy miss than a true
+        # "nothing exists"; don't pin it for the whole TTL. (An existing
+        # cached entry is likewise kept rather than overwritten with nothing.)
+        log.warning("Search produced no results; not caching")
+        return results, None
+
     payload = [r.model_dump() for r in results]
     expires = now + timedelta(hours=SEARCH_CACHE_TTL_HOURS)
     if row is None:

@@ -12,7 +12,12 @@ SEARCH_CACHE_VERSION = "v1"
 
 
 def database_url() -> str:
-    url = os.environ.get("DATABASE_URL", "")
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url.startswith(("postgres://", "postgresql://", "postgresql+")):
+        raise RuntimeError(
+            "DATABASE_URL is missing or not a Postgres URL "
+            "(expected postgresql://user:password@host/dbname)"
+        )
     # Render hands out postgres:// or postgresql:// URLs; SQLAlchemy needs the
     # driver spelled out to use psycopg 3.
     if url.startswith("postgres://"):

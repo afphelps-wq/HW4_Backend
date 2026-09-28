@@ -65,8 +65,8 @@ def make_user(session_factory):
 
 @pytest.fixture
 def auth_headers(client, make_user):
-    def _headers(email="alice@lab.org", password="correct-horse-1"):
-        make_user(email, password)
+    def _headers(email="alice@lab.org", password="correct-horse-1", **user_kw):
+        make_user(email, password, **user_kw)
         token = client.post("/auth/login", json={"email": email, "password": password}).json()
         return {"Authorization": f"Bearer {token['access_token']}"}
     return _headers

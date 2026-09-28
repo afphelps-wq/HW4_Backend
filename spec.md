@@ -206,6 +206,16 @@ Response:
 }
 ```
 
+Query parameter `?refresh=true` (admin users only, otherwise `403`) skips the
+cache read and overwrites the cached entry, for re-running a search without
+waiting out the TTL. Empty result sets are never cached, and a refresh that
+comes back empty leaves the existing cached entry alone.
+
+`confidence` is lower-cased and trimmed before validation. Each search logs
+its query variants, per-query and merged candidate counts (with accessions),
+and every ranker item dropped and why, so a missing expected accession can be
+traced to "never fetched" vs. "excluded by the ranker" vs. "dropped in the join".
+
 `meets_data_availability` replaces the example-specific `has_tls_annotations`
 from the illustrative output above. Results are `GSE`-level. Accessions the AI
 returns that were not in the fetched candidate set are dropped. `502` means
