@@ -34,6 +34,8 @@ class SearchResult(BaseModel):
     match_summary: str
     matched_conditions: list[str] = Field(default_factory=list)
     meets_data_availability: bool
+    # Verbatim quote from the study's title/summary backing meets_data_availability.
+    data_availability_evidence: str | None = None
     geo_url: str
     download_links: list[str] = Field(default_factory=list)
 

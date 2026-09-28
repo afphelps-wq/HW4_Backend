@@ -82,6 +82,7 @@ def _join(ranked: list[dict], candidates: dict[str, dict]) -> list[SearchResult]
                     match_summary=item.get("match_summary", ""),
                     matched_conditions=item.get("matched_conditions", []),
                     meets_data_availability=bool(item.get("meets_data_availability")),
+                    data_availability_evidence=item.get("evidence") or None,
                     geo_url=GEO_ACC_URL.format(candidate["accession"]),
                     download_links=links,
                 )

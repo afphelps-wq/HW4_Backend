@@ -200,6 +200,7 @@ Response:
     "match_summary": "...",
     "matched_conditions": ["..."],
     "meets_data_availability": true,
+    "data_availability_evidence": "...formation of mature tertiary lymphoid structures in a remodeled pancrea...",
     "geo_url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE277116",
     "download_links": ["ftp://.../GSE277nnn/GSE277116/", "ftp://.../GSE277116/suppl/"]
   }]
@@ -252,20 +253,40 @@ Three separate causes, each found from the per-search logs:
    it, so a 40-candidate cap dropped it. The service now sends up to 100
    (`MAX_CANDIDATES_FOR_RANKING`).
 3. **Ranker skimming.** One call over ~80-100 candidates made
-   `gpt-4o-mini` return only 2-6 results and usually skip the target. The
-   ranker (`app/services/ranking.py`) now judges batches of 20
-   (`RANKING_BATCH_SIZE`) in parallel and must return a verdict per candidate,
-   sorted by confidence then data-availability. Tested on 4 identical
-   candidate pools: 4/4 found, vs 1-2/4 for a single call. A larger model was
-   not needed (and `gpt-4o` exceeds this OpenAI account's per-minute token
-   limit for a single ~40k-token call). Live searches take ~14s; models
-   sometimes skip a few candidates per batch (~95% coverage), logged as a
-   warning.
+   `gpt-4o-mini` return only 2-6 results and usually skip the target. Ranking
+   is now two stages in `app/services/ranking.py`:
+   - *Filter:* `gpt-4o-mini` judges batches of 20 (`RANKING_BATCH_SIZE`) in
+     parallel and must return a verdict per candidate; candidates it skips
+     (~5 per search) are retried once. Tested on 4 identical pools: target
+     found 4/4, vs 1-2/4 for a single call.
+   - *Re-rank:* one call (`RERANK_MODEL`, default `gpt-4o`) over the ~10-30
+     survivors ranks them against each other. Verdicts from separate batches
+     are not comparable (nearly everything came back "high" with
+     `meets_data_availability: true`), so this pass is what gives a usable
+     order. `gpt-4o` is only viable because this input is small (~7-10k
+     tokens); a single call over the whole pool exceeds this OpenAI
+     account's per-minute token limit. Set `RERANK_MODEL=gpt-4o-mini` to
+     avoid it.
+
+`meets_data_availability` is decided in code, not taken from the model:
+the re-ranker proposes literal search terms for the requirement once per
+search (e.g. "TLS", "tertiary lymphoid structure"); the flag is true only if
+the model judges it met AND a term literally appears in the study's title or
+summary. `data_availability_evidence` is a snippet cut from that text by
+code, so it cannot be invented. An earlier version asked the model to quote
+evidence and only checked the quote existed; it flip-flopped run to run.
+Remaining weakness: the model's own judgment still occasionally says "no" for
+a study whose title states the requirement (a safe-direction miss), and the
+ranker only sees titles and summaries, never sample-level metadata.
 
 This was validated on one known example plus a handful of runs, so treat it as
 evidence, not proof; more known-good queries would make a real evaluation set.
 Bump `SEARCH_CACHE_VERSION` whenever this pipeline or its prompts change (now
-`v3`).
+`v4`).
+
+Live, uncached searches take ~20-25s (stage 1 ~13s, retry ~4s, re-rank
+~5s) and cost on the order of a few cents; identical searches are then
+served from the cache. The frontend needs a loading state for this.
 
 ## Open questions
 

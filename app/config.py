@@ -9,7 +9,7 @@ ACCESS_TOKEN_TTL_MINUTES = int(os.environ.get("ACCESS_TOKEN_TTL_MINUTES", "60"))
 SEARCH_CACHE_TTL_HOURS = int(os.environ.get("SEARCH_CACHE_TTL_HOURS", "24"))
 # Bump when the ranking prompt/model/candidate pipeline changes so stale cached
 # results aren't served.
-SEARCH_CACHE_VERSION = "v3"
+SEARCH_CACHE_VERSION = "v4"
 # Candidates sent to the AI ranker per search (~420 tokens each). The prototype
 # used 40, but a known-good match (GSE277116) only ranks ~25th within the one
 # query variant that finds it, so a cap of 40 across merged variants drops it.
@@ -42,3 +42,10 @@ def jwt_secret() -> str:
     if not secret:
         raise RuntimeError("JWT_SECRET is not set")
     return secret
+
+# Stage 2 of ranking: one call over stage 1's survivors (~20 candidates, ~7k
+# tokens) that ranks them against each other and strictly judges the
+# data-availability requirement. Small enough for a stronger model; set
+# RERANK_MODEL=gpt-4o-mini if the account can't use gpt-4o.
+RERANK_MODEL = os.environ.get("RERANK_MODEL", "gpt-4o")
+RERANK_MAX_CANDIDATES = int(os.environ.get("RERANK_MAX_CANDIDATES", "30"))
