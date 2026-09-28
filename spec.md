@@ -68,9 +68,13 @@ tracked explicitly so nothing gets silently assumed later.
 - **Usage scale**: initially just the user / a small lab group — not designed
   for open public traffic yet. This keeps OpenAI cost and abuse risk low
   without needing heavy rate-limiting infrastructure on day one.
-- **Frontend**: doesn't exist yet. It will be a static site on GitHub Pages
-  that calls this API; the API's request/response shape should be simple
-  enough to drive a lightweight future UI.
+- **Frontend**: a static page in `docs/`, served by GitHub Pages (plain HTML,
+  CSS and JS; no build step). It reuses the frosted-glass design system from
+  the author's RNA-seq Explorer project, including its light/dark tokens.
+  `docs/config.js` holds the API base URL. The page signs in, runs searches,
+  and manages saved searches; all API-provided text is inserted as text nodes
+  and only http(s) links are rendered, so a hostile field cannot inject
+  markup or a `javascript:` URL.
 
 ## Environment variables
 
@@ -303,8 +307,8 @@ These are known gaps to resolve in future iterations, not oversights:
   ambiguous user input.
 - Whether saved/bookmarked searches need any sharing or export feature
   (e.g. CSV export of shortlisted accessions).
-- CORS configuration specifics between the GitHub Pages domain and the
-  Render backend domain.
+- CORS: `ALLOWED_ORIGINS` must be the Pages origin only (scheme + host, no
+  path or trailing slash). Still open: whether a custom domain is wanted.
 
 ## Next steps
 
@@ -314,4 +318,5 @@ These are known gaps to resolve in future iterations, not oversights:
    timestamp; concurrent searches can briefly exceed NCBI's rate limit, which
    the 429 retry currently absorbs).
 3. Per-user / global OpenAI rate limiting and cost caps.
-4. Build the GitHub Pages frontend against this contract.
+4. Enable GitHub Pages (main / `docs`) and set `ALLOWED_ORIGINS` to the
+   resulting origin.
