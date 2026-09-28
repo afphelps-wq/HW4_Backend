@@ -12,15 +12,15 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
-from app.config import SEARCH_CACHE_TTL_HOURS, SEARCH_CACHE_VERSION
+from app.config import (
+    MAX_CANDIDATES_FOR_RANKING,
+    SEARCH_CACHE_TTL_HOURS,
+    SEARCH_CACHE_VERSION,
+)
 from app.models import SearchCache
 from app.schemas import SearchRequest, SearchResult
-from prototype.search_prototype import (
-    MAX_CANDIDATES_FOR_RANKING,
-    fetch_candidates,
-    generate_query_variants,
-    rank_with_ai,
-)
+from app.services.ranking import rank_candidates
+from prototype.search_prototype import fetch_candidates, generate_query_variants
 
 log = logging.getLogger(__name__)
 
@@ -95,7 +95,13 @@ def _join(ranked: list[dict], candidates: dict[str, dict]) -> list[SearchResult]
 
 def _run_live_search(req: SearchRequest) -> list[SearchResult]:
     user_input = _prototype_input(req)
-    variants = generate_query_variants(user_input)
+    # Variants only see the fields that drive the NCBI query. Given the full
+    # input, the model adds conditions/data-availability words ("TLS
+    # annotations") that NCBI ANDs in, and every variant returned 0 candidates
+    # -- which is how a known-good match (GSE277116) went missing in production.
+    variants = generate_query_variants(
+        {k: user_input[k] for k in ("methodology", "organism", "tissue")}
+    )
     log.info("Query variants: %s", variants)
     by_accession: dict[str, dict] = {}
     for query in variants:
@@ -106,7 +112,7 @@ def _run_live_search(req: SearchRequest) -> list[SearchResult]:
     merged = dict(list(by_accession.items())[:MAX_CANDIDATES_FOR_RANKING])
     log.info("Merged %d unique candidates, sending %d to ranker: %s",
              len(by_accession), len(merged), ", ".join(merged))
-    ranked = rank_with_ai(user_input, list(merged.values()))
+    ranked = rank_candidates(user_input, list(merged.values()))
     results = _join(ranked, merged)
     log.info("Ranker returned %d items, kept %d: %s", len(ranked), len(results),
              ", ".join(r.accession for r in results))

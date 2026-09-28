@@ -54,18 +54,18 @@ def _rank_returning(items):
 def test_confidence_casing_is_normalized_not_dropped(client, auth_headers, stub_upstreams, monkeypatch):
     item = {"accession": "GSE1", "match_summary": "m", "matched_conditions": [],
             "meets_data_availability": True, "confidence": " High "}
-    monkeypatch.setattr("app.services.search.rank_with_ai", _rank_returning([item]))
+    monkeypatch.setattr("app.services.search.rank_candidates", _rank_returning([item]))
     r = client.post("/search", json=BODY, headers=auth_headers())
     assert [x["confidence"] for x in r.json()["results"]] == ["high"]
 
 
 def test_empty_results_are_not_cached(client, auth_headers, stub_upstreams, monkeypatch):
     h = auth_headers()
-    monkeypatch.setattr("app.services.search.rank_with_ai", _rank_returning([]))
+    monkeypatch.setattr("app.services.search.rank_candidates", _rank_returning([]))
     first = client.post("/search", json=BODY, headers=h)
     assert first.json() == {"cached": False, "cached_at": None, "results": []}
 
-    monkeypatch.setattr("app.services.search.rank_with_ai", _rank_returning([
+    monkeypatch.setattr("app.services.search.rank_candidates", _rank_returning([
         {"accession": "GSE1", "match_summary": "m", "matched_conditions": [],
          "meets_data_availability": True, "confidence": "high"}]))
     second = client.post("/search", json=BODY, headers=h)
@@ -108,7 +108,40 @@ def test_admin_refresh_bypasses_and_overwrites_cache(client, auth_headers, stub_
 def test_empty_refresh_keeps_existing_cache_entry(client, auth_headers, stub_upstreams, monkeypatch):
     h = auth_headers(is_admin=True)
     client.post("/search", json=BODY, headers=h)  # populates the cache
-    monkeypatch.setattr("app.services.search.rank_with_ai", _rank_returning([]))
+    monkeypatch.setattr("app.services.search.rank_candidates", _rank_returning([]))
     assert client.post("/search?refresh=true", json=BODY, headers=h).json()["results"] == []
     kept = client.post("/search", json=BODY, headers=h).json()
     assert kept["cached"] is True and len(kept["results"]) == 1
+
+
+def test_variant_generator_sees_only_query_fields(client, auth_headers, monkeypatch):
+    seen = {}
+
+    def capture(user_input):
+        seen.update(user_input)
+        return ["q"]
+
+    monkeypatch.setattr("app.services.search.generate_query_variants", capture)
+    monkeypatch.setattr("app.services.search.fetch_candidates", lambda q: [])
+    monkeypatch.setattr("app.services.search.rank_candidates", lambda u, c: [])
+    client.post("/search", json=BODY, headers=auth_headers())
+    # conditions/data_availability must not reach the variant prompt, or the
+    # model bakes them into the NCBI query and every variant returns nothing
+    assert set(seen) == {"methodology", "organism", "tissue"}
+
+
+def test_ranker_candidate_cap_is_applied(client, auth_headers, monkeypatch):
+    from tests.conftest import CANDIDATE
+
+    sent = {}
+
+    def many(query):
+        return [{**CANDIDATE, "accession": f"GSE{i}"} for i in range(30)]
+
+    monkeypatch.setattr("app.services.search.generate_query_variants", lambda u: ["q"])
+    monkeypatch.setattr("app.services.search.fetch_candidates", many)
+    monkeypatch.setattr("app.services.search.MAX_CANDIDATES_FOR_RANKING", 12)
+    monkeypatch.setattr("app.services.search.rank_candidates",
+                        lambda u, cands: sent.setdefault("n", len(cands)) and [])
+    client.post("/search", json=BODY, headers=auth_headers())
+    assert sent["n"] == 12

@@ -239,6 +239,34 @@ Managed with Alembic (`alembic upgrade head`); initial migration is
   changes. Expired rows are overwritten on the next identical search but never
   purged yet.
 
+### Recall lessons from production testing
+
+The known-good `GSE277116` initially never appeared in production results.
+Three separate causes, each found from the per-search logs:
+
+1. **Query variants carried too much.** Given the full input, the AI put
+   "TLS annotations" into its NCBI queries; NCBI ANDs every word, so 3 of 4
+   variants returned 0 candidates. Variants now see only methodology,
+   organism and tissue.
+2. **Candidate cap.** The match sits ~25th within the one variant that finds
+   it, so a 40-candidate cap dropped it. The service now sends up to 100
+   (`MAX_CANDIDATES_FOR_RANKING`).
+3. **Ranker skimming.** One call over ~80-100 candidates made
+   `gpt-4o-mini` return only 2-6 results and usually skip the target. The
+   ranker (`app/services/ranking.py`) now judges batches of 20
+   (`RANKING_BATCH_SIZE`) in parallel and must return a verdict per candidate,
+   sorted by confidence then data-availability. Tested on 4 identical
+   candidate pools: 4/4 found, vs 1-2/4 for a single call. A larger model was
+   not needed (and `gpt-4o` exceeds this OpenAI account's per-minute token
+   limit for a single ~40k-token call). Live searches take ~14s; models
+   sometimes skip a few candidates per batch (~95% coverage), logged as a
+   warning.
+
+This was validated on one known example plus a handful of runs, so treat it as
+evidence, not proof; more known-good queries would make a real evaluation set.
+Bump `SEARCH_CACHE_VERSION` whenever this pipeline or its prompts change (now
+`v3`).
+
 ## Open questions
 
 These are known gaps to resolve in future iterations, not oversights:

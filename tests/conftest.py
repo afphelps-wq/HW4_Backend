@@ -82,7 +82,7 @@ def stub_upstreams(monkeypatch):
 
     monkeypatch.setattr("app.services.search.generate_query_variants", fake_variants)
     monkeypatch.setattr("app.services.search.fetch_candidates", lambda q: [dict(CANDIDATE)])
-    monkeypatch.setattr("app.services.search.rank_with_ai", lambda u, c: RANKED)
+    monkeypatch.setattr("app.services.search.rank_candidates", lambda u, c: RANKED)
     return calls
 
 
@@ -92,5 +92,5 @@ def block_live_upstreams(monkeypatch):
     def blocked(*args, **kwargs):
         raise AssertionError("test attempted a live NCBI/OpenAI call")
 
-    for name in ("generate_query_variants", "fetch_candidates", "rank_with_ai"):
+    for name in ("generate_query_variants", "fetch_candidates", "rank_candidates"):
         monkeypatch.setattr(f"app.services.search.{name}", blocked)
