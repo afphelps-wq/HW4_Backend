@@ -1,7 +1,7 @@
 /* Frontend checks: the real docs/ files driven in jsdom against a stubbed API.
  *
  *   pip install -r requirements.txt && npm install jsdom
- *   python tests/frontend/serve_test.py &     # the real FastAPI app, SQLite, no network
+ *   python tests/frontend/stub_api.py &     # the real FastAPI app, SQLite, no network
  *   node tests/frontend/test.mjs
  */
 import { JSDOM } from "jsdom";

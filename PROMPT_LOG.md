@@ -6,6 +6,34 @@ the decisions they produced are recorded in [spec.md](spec.md). Long console,
 API and deploy-log pastes are shortened, marked `[... truncated ...]`; the prompt
 text itself is never edited.
 
+## Tools and models used
+
+**To build it:** [Claude Code](https://claude.com/claude-code), Anthropic's CLI/IDE coding agent,
+run inside VS Code. It wrote code, ran the test suites, made the live NCBI/OpenAI calls used to
+validate the ranking pipeline, and drove `git` and `gh`. Sessions 1 and 2 ran on **Claude Sonnet
+5**; the frontend work onwards ran on **Claude Opus 5**. Each commit records which one in its
+`Co-Authored-By` trailer.
+
+**Inside the app:** OpenAI's **`gpt-4o-mini`** generates the alternate NCBI query phrasings and
+runs the stage-1 candidate filter; **`gpt-4o`** does the stage-2 re-rank. Both are called from the
+backend only (see [README](README.md#how-secrets-and-auth-are-handled)).
+
+## Prompts that shaped the implementation
+
+The whole log is below, but these are the turns that changed the design rather than the wiring:
+
+| # | Prompt | What it changed |
+|---|---|---|
+| [1](#1-project-kickoff) | "help me figure out what details I want to implement by creating a spec.md and then prompting me with as many questions as you can" | Produced `spec.md` and the question-first workflow used throughout |
+| [2](#2-example-query-reply-to-a-clarifying-question) | The PDAC / TLS example query | The worked example the whole pipeline is validated against; "TLS annotations" is what forced AI ranking over plain filtering |
+| [16](#16-fix-query-recall) | "try to fix it" (a known-good study was missing) | Added AI-generated query variants after a single literal query proved to miss matches |
+| [20](#20-session-2-api-schema-auth-routes-database-schema) | "/search endpoint schema, auth routes … Postgres schema" | The API contract, JWT auth and the three tables |
+| [21](#21-ask-the-clarifying-questions) | "ask me these questiosn" | Chose the admin-script signup, SQLAlchemy + Alembic, and result snapshots in bookmarks |
+| [40](#40-accept-the-four-proposed-fixes) | "Don't cache empty results / Normalize confidence casing / Log the query variants … / admin-only ?refresh=true" | The diagnostics that made the recall bug findable at all |
+| [44](#44-logs-reveal-the-cause-variants-return-nothing) | The log paste showing 3 of 4 variants returning 0 candidates | Root cause: the variant prompt was seeing the data-availability text and ANDing "TLS" into NCBI queries |
+| [47](#47-build-stage-2-and-when-does-the-frontend-start) | "yes build stage 2" | Two-stage ranking, after batch verdicts proved not comparable across batches |
+| [50](#50-match-the-other-projects-style) | "model this frontend to be the same style as my project" | The frontend reuses the design system from `15113-api-project` |
+
 ## 1. Project kickoff
 
 ```

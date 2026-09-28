@@ -4,6 +4,8 @@ database, with the NCBI and OpenAI calls stubbed out, on http://127.0.0.1:8765.
 Two accounts exist: admin@lab.org / correct-horse-1 (admin) and
 bob@lab.org / correct-horse-2. Run it, then `node tests/frontend/test.mjs`.
 
+Not named *_test.py on purpose: pytest would import it and block on uvicorn.run().
+
 Set ALLOWED_ORIGINS to serve a browser from another origin against it.
 """
 import os
