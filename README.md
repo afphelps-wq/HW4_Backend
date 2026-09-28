@@ -9,9 +9,10 @@ from NCBI and has a language model judge each candidate against the whole reques
 
 | | |
 |---|---|
-| **Live frontend** | https://afphelps-wq.github.io/HW4_Backend/ |
+| **Live frontend** | https://afphelps-wq.github.io/seq2find-frontend/ |
 | **Live backend** | https://seq2find.onrender.com (interactive API docs at [`/docs`](https://seq2find.onrender.com/docs)) |
 | **Stack** | FastAPI + PostgreSQL on Render; static HTML/CSS/JS on GitHub Pages |
+| **Frontend repo** | https://github.com/afphelps-wq/seq2find-frontend |
 | **Design decisions** | [`spec.md`](spec.md) |
 
 Accounts are invite-only, so there is no public signup. Ask for one, or create your own locally
@@ -126,8 +127,10 @@ Bookmarks, scoped to the signed-in user. `POST` takes `{"name", "query", "result
 
 ## How the frontend talks to the backend
 
-The frontend is the static page in [`docs/`](docs/). It holds no secrets — only the backend's base
-URL, in [`docs/config.js`](docs/config.js) — and calls the API with `fetch()`:
+The frontend is a **separate repository**, [`seq2find-frontend`](https://github.com/afphelps-wq/seq2find-frontend), served by GitHub Pages
+at [https://afphelps-wq.github.io/seq2find-frontend/](https://afphelps-wq.github.io/seq2find-frontend/). Keeping it apart means the two halves deploy independently across a real
+HTTP boundary. It holds no secrets — only this API's base URL, in its `config.js` — and calls the
+API with `fetch()`:
 
 | When | Call | What it does with the response |
 |---|---|---|
@@ -170,10 +173,10 @@ curl -X POST http://127.0.0.1:8000/auth/login \
   -d '{"email":"you@example.com","password":"…"}'
 ```
 
-To point the page at your local backend, edit `docs/config.js` to
-`window.SEQ2FIND_API = "http://127.0.0.1:8000";`, add that origin to `ALLOWED_ORIGINS`, and serve
-the folder with `python -m http.server 8080 -d docs` (opening the file directly gives it an
-`origin` of `null`, which CORS rejects). **Change `config.js` back before pushing.**
+To drive it from the real page, clone [`seq2find-frontend`](https://github.com/afphelps-wq/seq2find-frontend) beside this repo, set its
+`config.js` to `window.SEQ2FIND_API = "http://127.0.0.1:8000";`, add `http://localhost:8080` to
+`ALLOWED_ORIGINS`, and serve it with `python -m http.server 8080` (opening the file directly gives
+it an `origin` of `null`, which CORS rejects). **Change `config.js` back before pushing.**
 
 ### Environment variables
 
@@ -214,12 +217,25 @@ pytest                                       # 39 backend checks: SQLite, no net
 
 npm install jsdom                            # once
 python tests/frontend/stub_api.py &        # the real app on SQLite, upstreams stubbed
-node tests/frontend/test.mjs                 # 61 checks driving the real docs/ files
+node tests/frontend/test.mjs                 # 61 checks driving the real frontend
 ```
 
-The frontend suite loads the actual `docs/` files in a headless DOM and exercises sign-in, session
+The frontend suite loads the real page from a [`seq2find-frontend`](https://github.com/afphelps-wq/seq2find-frontend) checkout — beside
+this repo, or wherever `FRONTEND_DIR` points — into a headless DOM, and exercises sign-in, session
 expiry, search, caching, bookmarks, the theme toggle, and every error path, including deliberately
 hostile titles and `javascript:` links.
+
+## Deploying
+
+**Backend (Render).** Build `pip install -r requirements.txt`; start
+`alembic upgrade head && uvicorn backend:app --host 0.0.0.0 --port $PORT`, so each deploy applies
+migrations before serving. Health check path `/health`. Set the environment variables above, using
+the database's **internal** URL for `DATABASE_URL`; run `scripts/create_user` from your own machine
+with the **external** one.
+
+**Frontend (GitHub Pages).** See [`seq2find-frontend`](https://github.com/afphelps-wq/seq2find-frontend) — Pages from `main` at the repo
+root. Its `config.js` points at this API, and `ALLOWED_ORIGINS` here must contain that site's
+**origin** (`https://afphelps-wq.github.io`), with no path and no trailing slash.
 
 ## Caveats
 

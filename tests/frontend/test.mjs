@@ -1,4 +1,7 @@
-/* Frontend checks: the real docs/ files driven in jsdom against a stubbed API.
+/* Frontend checks: the real frontend files driven in jsdom against a stubbed API.
+ *
+ * The frontend lives in its own repo (github.com/afphelps-wq/seq2find-frontend), so
+ * check it out beside this one, or point FRONTEND_DIR at it.
  *
  *   pip install -r requirements.txt && npm install jsdom
  *   python tests/frontend/stub_api.py &     # the real FastAPI app, SQLite, no network
@@ -9,7 +12,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DOCS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../docs");
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const DOCS = path.resolve(process.env.FRONTEND_DIR || path.join(REPO, "../seq2find-frontend"));
+
+if (!fs.existsSync(path.join(DOCS, "index.html"))) {
+  console.error(
+    `No frontend at ${DOCS}\n` +
+    "Clone https://github.com/afphelps-wq/seq2find-frontend beside this repo, " +
+    "or set FRONTEND_DIR to its path.");
+  process.exit(2);
+}
+console.log(`Testing the frontend at ${DOCS}\n`);
 const BASE = "http://127.0.0.1:8765";
 let failures = 0;
 const check = (name, cond, extra = "") => {
